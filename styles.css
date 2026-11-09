@@ -40,13 +40,16 @@ header { display: flex; justify-content: space-between; align-items: center; mar
 h1 { margin: 0; font-size: 1.5rem; letter-spacing: .5px; }
 .icon-btn { background: var(--card); width: 42px; height: 42px; border-radius: 12px; font-size: 1.3rem; }
 
-.tabs { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; background: var(--card); padding: 5px; border-radius: 14px; }
-.tabs button { --c: var(--accent); --ct: #fff; background: transparent; padding: 12px 0 10px; border-radius: 10px; font-weight: 700; font-size: .88rem; color: #a3abba; box-shadow: inset 0 -3px 0 var(--c); }
-.tabs button[data-mode="tabata"]  { --c: #22c55e; --ct: #052e16; }
-.tabs button[data-mode="emom"]    { --c: #7c3aed; --ct: #fff; }
-.tabs button[data-mode="amrap"]   { --c: #facc15; --ct: #1a1500; }
-.tabs button[data-mode="fortime"] { --c: #2563eb; --ct: #fff; }
-.tabs button.on { background: var(--c); color: var(--ct); box-shadow: none; padding: 12px 0; }
+.tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
+.tabs button { --c: var(--accent); --ct: #fff; grid-column: span 2; background: transparent; padding: 13px 0; border-radius: 12px; font-weight: 700; font-size: .95rem; color: var(--text); border: 2px solid var(--c); display: flex; align-items: center; justify-content: center; gap: 7px; }
+.tabs button svg { flex: none; }
+.tabs button:nth-child(n+4) { grid-column: span 3; }
+.tabs button[data-mode="tabata"]    { --c: #22c55e; --ct: #052e16; }
+.tabs button[data-mode="emom"]      { --c: #7c3aed; --ct: #fff; }
+.tabs button[data-mode="amrap"]     { --c: #facc15; --ct: #1a1500; }
+.tabs button[data-mode="fortime"]   { --c: #2563eb; --ct: #fff; }
+.tabs button[data-mode="stopwatch"] { --c: #fb923c; --ct: #1c0a00; }
+.tabs button.on { background: var(--c); color: var(--ct); }
 
 /* colore di ogni modalità (pulsanti principali) */
 body { --mc: var(--accent); --mc-text: #fff; }
@@ -54,6 +57,7 @@ body[data-mode="tabata"]  { --mc: #22c55e; --mc-text: #052e16; }
 body[data-mode="emom"]    { --mc: #7c3aed; --mc-text: #fff; }
 body[data-mode="amrap"]   { --mc: #facc15; --mc-text: #1a1500; }
 body[data-mode="fortime"] { --mc: #2563eb; --mc-text: #fff; }
+body[data-mode="stopwatch"] { --mc: #fb923c; --mc-text: #1c0a00; }
 
 .mode-desc { color: var(--muted); font-size: .9rem; margin: 12px 2px 6px; min-height: 2.6em; }
 
@@ -81,6 +85,7 @@ body[data-mode="fortime"] { --mc: #2563eb; --mc-text: #fff; }
 #timer.work.m-emom    { background: #2e1065; }
 #timer.work.m-amrap   { background: #2b2300; }
 #timer.work.m-fortime { background: #0b1e4a; }
+#timer.work.m-stopwatch { background: #2a1300; }
 #timer.paused { filter: saturate(.4); }
 
 .top { display: flex; justify-content: space-between; gap: 8px; }
@@ -94,6 +99,7 @@ body[data-mode="fortime"] { --mc: #2563eb; --mc-text: #fff; }
 .work.m-emom    .phase-label { color: #c4b5fd; }
 .work.m-amrap   .phase-label { color: #fde047; }
 .work.m-fortime .phase-label { color: #93c5fd; }
+.work.m-stopwatch .phase-label { color: #fdba74; }
 .clock { font-size: clamp(5.5rem, 34vw, 11rem); font-weight: 800; line-height: 1; font-variant-numeric: tabular-nums; margin: 6px 0; }
 .next { color: var(--muted); font-size: 1.05rem; min-height: 1.4em; }
 
@@ -111,7 +117,11 @@ body[data-mode="fortime"] { --mc: #2563eb; --mc-text: #fff; }
 .round-btn.small { flex: 0 0 64px; height: 64px; background: var(--line); font-size: 1.8rem; }
 
 .ft-box { margin-bottom: 14px; display: flex; }
-.ft-box[hidden] { display: none; }
+.ft-box[hidden], .sw-box[hidden], .summary[hidden], .progress[hidden], .total-line[hidden] { display: none; }
+.sw-box { margin-bottom: 14px; display: flex; flex-direction: column; gap: 10px; }
+.lap-list { list-style: none; margin: 0; padding: 0; min-height: 4.6em; display: flex; flex-direction: column; gap: 4px; font-variant-numeric: tabular-nums; }
+.lap-list li { display: flex; justify-content: space-between; background: rgba(255,255,255,.08); border-radius: 10px; padding: 6px 12px; font-size: .95rem; }
+.lap-list li span:last-child { color: #c9b8a6; }
 .round-btn.finish { height: 92px; font-size: 2rem; letter-spacing: 2px; }
 .controls { display: flex; gap: 10px; }
 .controls .primary, .controls .danger { padding: 20px; font-size: 1.1rem; }

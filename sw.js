@@ -1,7 +1,7 @@
 /* Service worker: l'app funziona offline dopo la prima apertura.
    Strategia: risponde subito dalla cache e aggiorna in background (stale-while-revalidate).
    Quando pubblichi una nuova versione, incrementa CACHE. */
-const CACHE = 'gymtimer-v2';
+const CACHE = 'gymtimer-v4';
 const ASSETS = [
   './',
   'index.html',

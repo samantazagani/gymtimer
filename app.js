@@ -18,7 +18,8 @@ const DEFAULTS = {
   emom:   { prep: 10, interval: 60, rounds: 10 },
   amrap:  { prep: 10, minutes: 12 },
   fortime: { prep: 10, cap: 15 },
-  sound:  { on: true, volume: 0.8, countdown: true, vibrate: true, voice: false },
+  stopwatch: {},
+  sound:  { on: true, volume: 0.8, countdown: true, mid: true, vibrate: true, voice: false },
 };
 
 const FIELDS = {
@@ -41,14 +42,16 @@ const FIELDS = {
     { key: 'prep', label: 'Preparazione', min: 0, max: 60, step: 5, fmt: 'time' },
     { key: 'cap',  label: 'Time cap',     min: 0, max: 90, step: 1, fmt: 'cap' },
   ],
+  stopwatch: [],
 };
 
-const MODE_NAMES = { tabata: 'TABATA', emom: 'EMOM', amrap: 'AMRAP', fortime: 'FOR TIME' };
+const MODE_NAMES = { tabata: 'TABATA', emom: 'EMOM', amrap: 'AMRAP', fortime: 'FOR TIME', stopwatch: 'CRONOMETRO' };
 const MODE_DESC = {
   tabata: 'Lavoro e recupero a intervalli fissi, per un numero di round. Classico: 20" lavoro / 10" recupero × 8.',
   emom:   'Every Minute On the Minute: a ogni scadenza parte un nuovo round. Quello che avanza è recupero.',
   amrap:  'As Many Rounds As Possible: più giri possibili nel tempo stabilito. Tocca +1 a ogni giro.',
   fortime: 'Completa il lavoro il più in fretta possibile: il tempo sale, tocca FINITO quando hai terminato. Con il time cap suona allo scadere.',
+  stopwatch: 'Un semplice cronometro: avvia, ferma e tocca GIRO per segnare i parziali.',
 };
 
 function loadState() {
@@ -60,6 +63,7 @@ function loadState() {
       emom:   { ...DEFAULTS.emom,   ...saved.emom },
       amrap:  { ...DEFAULTS.amrap,  ...saved.amrap },
       fortime: { ...DEFAULTS.fortime, ...saved.fortime },
+      stopwatch: {},
       sound:  { ...DEFAULTS.sound,  ...saved.sound },
     };
   } catch { return structuredClone(DEFAULTS); }
@@ -94,6 +98,8 @@ function buildSegments(mode, c) {
     }
   } else if (mode === 'amrap') {
     segs.push({ type: 'work', dur: c.minutes * 60, label: 'AMRAP', amrap: true });
+  } else if (mode === 'stopwatch') {
+    segs.push({ type: 'work', dur: Infinity, label: 'CRONOMETRO', stopwatch: true });
   } else {
     segs.push({ type: 'work', dur: c.cap > 0 ? c.cap * 60 : Infinity, label: 'FOR TIME', forTime: true, capped: c.cap > 0 });
   }
@@ -194,7 +200,7 @@ function unlockScreen() { try { wakeLock && wakeLock.release(); } catch {} wakeL
 const engine = {
   segs: [], idx: 0, segMs: 0, totalMs: 0, totalDur: 0,
   running: false, last: 0, handle: null,
-  lastCount: null, flags: {}, amrapRounds: 0, mode: 'tabata', cfg: null, capped: false, resultSec: 0,
+  lastCount: null, flags: {}, amrapRounds: 0, mode: 'tabata', cfg: null, capped: false, resultSec: 0, laps: [],
 
   start(mode, cfg) {
     this.mode = mode; this.cfg = { ...cfg };
@@ -202,7 +208,7 @@ const engine = {
     this.totalDur = totalDuration(this.segs);
     this.idx = 0; this.segMs = 0; this.totalMs = 0;
     this.amrapRounds = 0; this.lastCount = null; this.flags = {};
-    this.capped = false; this.resultSec = 0;
+    this.capped = false; this.resultSec = 0; this.laps = [];
     this.running = true; this.last = performance.now();
     clearInterval(this.handle);
     this.handle = setInterval(() => this.tick(), 100);
@@ -222,7 +228,8 @@ const engine = {
   onSegmentStart() {
     const s = this.seg;
     this.lastCount = null; this.flags = {};
-    if (s.type === 'work') { SND.go(); speak(this.mode === 'tabata' ? 'Lavoro' : 'Via'); }
+    if (s.type === 'work' && s.stopwatch) { SND.tick(); }
+    else if (s.type === 'work') { SND.go(); speak(this.mode === 'tabata' ? 'Lavoro' : 'Via'); }
     else if (s.type === 'rest') { SND.rest(); speak('Recupero'); }
     else if (s.type === 'prep') { speak('Preparati'); }
   },
@@ -249,6 +256,14 @@ const engine = {
     if (state.sound.countdown && s.dur > 3 && remaining <= 3 && remaining >= 1 && remaining !== this.lastCount) {
       this.lastCount = remaining; SND.tick();
     }
+    // segnale a metà lavoro (Tabata) / metà intervallo (EMOM)
+    if (state.sound.mid && s.type === 'work' && (this.mode === 'tabata' || this.mode === 'emom') && s.dur >= 10 && !this.flags.mid) {
+      const half = s.dur * 500;
+      if (this.segMs >= half) {
+        this.flags.mid = true;
+        if (this.segMs < half + 1500) { SND.half(); speak('Metà'); }   // se l'app era in background, non suonare in ritardo
+      }
+    }
     // avvisi extra per AMRAP
     if (s.amrap) {
       const left = s.dur - this.segMs / 1000;
@@ -272,6 +287,16 @@ const engine = {
     this.capped = this.mode === 'fortime';          // arrivati a fine segmento = time cap
     SND.end(); speak(this.capped ? 'Time cap' : 'Finito');
     ui.showDone();
+  },
+
+  // Cronometro: segna un parziale
+  lap() {
+    if (!this.running || !this.seg.stopwatch) return;
+    const total = this.segMs / 1000;
+    const last = this.laps.length ? this.laps[0].total : 0;
+    this.laps.unshift({ n: this.laps.length + 1, split: total - last, total });
+    vibrate(30);
+    ui.renderTimer();
   },
 
   // For Time: l'atleta ha finito prima del cap
@@ -329,6 +354,7 @@ const ui = {
   renderTotal() {
     const segs = buildSegments(state.mode, state[state.mode]);
     const tot = totalDuration(segs);
+    $('.summary').hidden = state.mode === 'stopwatch';
     $('#total-label').textContent = state.mode === 'fortime' ? 'Durata massima' : 'Durata totale';
     $('#total-time').textContent = Number.isFinite(tot) ? fmtClock(tot) : 'Senza limite';
   },
@@ -345,13 +371,14 @@ const ui = {
     $('#t-mode').textContent = MODE_NAMES[engine.mode];
     $('#t-round').textContent = s.rounds ? `Round ${s.round}/${s.rounds}`
       : s.amrap ? `Giri ${engine.amrapRounds}`
-      : s.forTime ? (s.capped ? `Cap ${fmtClock(s.dur)}` : 'Senza cap') : '';
+      : s.forTime ? (s.capped ? `Cap ${fmtClock(s.dur)}` : 'Senza cap')
+      : s.stopwatch ? `Giri ${engine.laps.length}` : '';
     $('#t-label').textContent = s.label;
-    $('#t-time').textContent = s.forTime ? fmtElapsed(engine.segMs / 1000) : fmtClock((s.dur * 1000 - engine.segMs) / 1000);
+    $('#t-time').textContent = (s.forTime || s.stopwatch) ? fmtElapsed(engine.segMs / 1000) : fmtClock((s.dur * 1000 - engine.segMs) / 1000);
 
     const n = engine.nextSeg();
     $('#t-next').textContent = n ? `Poi: ${n.label} ${Number.isFinite(n.dur) ? fmtClock(n.dur) : ''}`.trim()
-      : s.forTime ? 'Tocca FINITO quando hai terminato' : (s.amrap ? '' : 'Ultimo!');
+      : s.forTime ? 'Tocca FINITO quando hai terminato' : (s.amrap || s.stopwatch ? '' : 'Ultimo!');
     const rem = engine.totalRemaining();
     $('#t-total').textContent = Number.isFinite(rem) ? fmtClock(rem) : '—';
     $('#t-bar').style.width = `${Math.min(100, (engine.totalMs / 1000 / engine.totalDur) * 100)}%`;
@@ -359,6 +386,13 @@ const ui = {
     $('#amrap-box').hidden = !(engine.mode === 'amrap' && s.type === 'work');
     $('#amrap-n').textContent = engine.amrapRounds;
     $('#ft-box').hidden = !(engine.mode === 'fortime' && s.type === 'work');
+    $('#sw-box').hidden = !s.stopwatch;
+    $('.progress').hidden = !!s.stopwatch;
+    $('.total-line').hidden = !!s.stopwatch;
+    if (s.stopwatch) {
+      $('#lap-list').innerHTML = engine.laps.slice(0, 3)
+        .map(l => `<li><span>Giro ${l.n} · ${fmtElapsed(l.split)}</span><span>totale ${fmtElapsed(l.total)}</span></li>`).join('');
+    }
 
     $('#btn-pause').textContent = engine.running ? 'PAUSA' : 'RIPRENDI';
     $('#btn-exit').hidden = engine.running;
@@ -406,6 +440,7 @@ $('#btn-pause').addEventListener('click', () => {
   else { initAudio(); lockScreen(); engine.resume(); }
   ui.renderTimer();
 });
+$('#btn-lap').addEventListener('click', () => engine.lap());
 $('#btn-finish').addEventListener('click', () => engine.finishNow());
 $('#btn-plus').addEventListener('click', () => { engine.amrapRounds++; vibrate(30); ui.renderTimer(); });
 $('#btn-minus').addEventListener('click', () => { engine.amrapRounds = Math.max(0, engine.amrapRounds - 1); ui.renderTimer(); });
@@ -416,6 +451,7 @@ function openSettings() {
   $('#s-sound').checked = S.on;
   $('#s-volume').value = S.volume;
   $('#s-countdown').checked = S.countdown;
+  $('#s-mid').checked = S.mid;
   $('#s-vibrate').checked = S.vibrate;
   $('#s-voice').checked = S.voice;
   $('#settings').hidden = false;
@@ -425,6 +461,7 @@ $('#btn-settings-close').addEventListener('click', () => { $('#settings').hidden
 $('#s-sound').addEventListener('change', e => { S.on = e.target.checked; saveState(); });
 $('#s-volume').addEventListener('input', e => { S.volume = Number(e.target.value); saveState(); });
 $('#s-countdown').addEventListener('change', e => { S.countdown = e.target.checked; saveState(); });
+$('#s-mid').addEventListener('change', e => { S.mid = e.target.checked; saveState(); });
 $('#s-vibrate').addEventListener('change', e => { S.vibrate = e.target.checked; saveState(); });
 $('#s-voice').addEventListener('change', e => { S.voice = e.target.checked; saveState(); });
 $('#btn-test').addEventListener('click', () => {

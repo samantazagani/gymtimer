@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 6;           // tienila uguale al numero in sw.js (gymtimer-vN)
+const APP_VERSION = 7;           // tienila uguale al numero in sw.js (gymtimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -117,9 +117,10 @@ let silentTimer = null;
 let scheduledNodes = [];
 
 function makeSilentWavURI() {
-  // 1 s a 8 kHz, 16 bit: un'onda a 10 Hz (non udibile) a bassissimo livello. Non è silenzio assoluto,
+  // 10 s a 8 kHz, 16 bit: un'onda a 10 Hz (non udibile) a bassissimo livello. Non è silenzio assoluto,
   // così Android e iOS considerano la pagina "in riproduzione" e non la sospendono a schermo spento.
-  const n = 8000, bytes = n * 2, buf = new ArrayBuffer(44 + bytes), v = new DataView(buf);
+  // Dura almeno 10 s perché Chrome non mostra la scheda multimediale per tracce molto brevi.
+  const n = 80000, bytes = n * 2, buf = new ArrayBuffer(44 + bytes), v = new DataView(buf);
   const w = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
   w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVE'); w(12, 'fmt ');
   v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);

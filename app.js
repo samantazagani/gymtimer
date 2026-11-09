@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 5;           // tienila uguale al numero in sw.js (gymtimer-vN)
+const APP_VERSION = 6;           // tienila uguale al numero in sw.js (gymtimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -152,21 +152,43 @@ function stopSilent(delay = 0) {
   silentTimer = setTimeout(() => { if (!engine.active) { try { silentEl && silentEl.pause(); } catch {} } }, delay);
 }
 
-// Controlli sulla schermata di blocco / notifica (aiuta a tenere viva la pagina in background)
-function setupMediaSession(title) {
+// Scheda sulla schermata di blocco / area notifiche: fase, round e barra del tempo
+let mediaKey = '';
+function setupMediaSession() {
   if (!('mediaSession' in navigator)) return;
   try {
-    navigator.mediaSession.metadata = new MediaMetadata({
-      title: 'GymTimer', artist: title,
-      artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
-    });
     navigator.mediaSession.playbackState = 'playing';
     navigator.mediaSession.setActionHandler('pause', () => { if (engine.active && engine.running) { engine.pause(); ui.renderTimer(); } });
     navigator.mediaSession.setActionHandler('play', () => { if (engine.active && !engine.running) { initAudio(); engine.resume(); ui.renderTimer(); } });
   } catch {}
+  mediaKey = ''; refreshMedia(true);
+}
+function refreshMedia(syncPosition = false) {
+  if (!('mediaSession' in navigator) || !engine.active || !engine.seg) return;
+  try {
+    const s = engine.seg;
+    const key = `${engine.mode}|${s.label}|${s.round || 0}`;
+    if (key !== mediaKey) {
+      mediaKey = key;
+      navigator.mediaSession.metadata = new MediaMetadata({
+        title: s.label,
+        artist: `GymTimer · ${MODE_NAMES[engine.mode]}${s.rounds ? ` · Round ${s.round}/${s.rounds}` : ''}`,
+        artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
+      });
+    }
+    if (syncPosition) {
+      // la barra avanza da sola, senza che l'app la aggiorni; niente barra se la durata non c'è o se è in pausa
+      if (Number.isFinite(engine.totalDur) && engine.running) {
+        navigator.mediaSession.setPositionState({ duration: engine.totalDur, playbackRate: 1, position: Math.min(engine.totalMs / 1000, engine.totalDur) });
+      } else navigator.mediaSession.setPositionState();
+    }
+  } catch {}
 }
 function setMediaState(st) { try { navigator.mediaSession.playbackState = st; } catch {} }
-function clearMediaSession() { try { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; } catch {} }
+function clearMediaSession() {
+  mediaKey = '';
+  try { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; navigator.mediaSession.setPositionState(); } catch {}
+}
 
 // Programma un beep sull'orologio audio: suona anche se il JavaScript è rallentato o sospeso in background.
 function tone(freq, dur, when = 0, type = 'sine', gain = 1) {
@@ -257,12 +279,12 @@ const engine = {
     this.schedule();
   },
 
-  pause() { this.tick(); this.running = false; clearInterval(this.handle); cancelScheduled(); setMediaState('paused'); },
+  pause() { this.tick(); this.running = false; clearInterval(this.handle); cancelScheduled(); setMediaState('paused'); refreshMedia(true); },
   resume() {
     this.running = true; this.last = Date.now();
     clearInterval(this.handle);
     this.handle = setInterval(() => this.tick(), 100);
-    this.schedule(); setMediaState('playing');
+    this.schedule(); setMediaState('playing'); refreshMedia(true);
   },
   stop() { this.running = false; this.active = false; clearInterval(this.handle); cancelScheduled(); clearMediaSession(); },
 
@@ -329,7 +351,7 @@ const engine = {
       if (this.idx >= this.segs.length) { this.finish(); return; }
       advanced = true;
     }
-    if (advanced) this.onSegmentStart(this.segMs < 1500);
+    if (advanced) { this.onSegmentStart(this.segMs < 1500); refreshMedia(true); }
 
     const s = this.seg;
     const remaining = Math.ceil((s.dur * 1000 - this.segMs) / 1000);
@@ -501,7 +523,7 @@ function startWorkout() {
   lockScreen();
   ui.show('timer');
   engine.start(state.mode, state[state.mode]);
-  setupMediaSession(MODE_NAMES[state.mode]);
+  setupMediaSession();
   ui.renderTimer();
 }
 function exitWorkout() {
@@ -559,7 +581,7 @@ document.addEventListener('visibilitychange', () => {
     lockScreen();
     if (ctx && ctx.state !== 'running') ctx.resume();
     engine.tick();
-    if (engine.running) engine.schedule();     // riallinea i suoni all'orologio reale
+    if (engine.running) { engine.schedule(); refreshMedia(true); }     // riallinea suoni e barra all'orologio reale
   }
 });
 

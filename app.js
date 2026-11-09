@@ -10,6 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
+const APP_VERSION = 5;           // tienila uguale al numero in sw.js (gymtimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -72,6 +73,7 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch { /* storage pieno/bloccato */ }
 }
 const state = loadState();
+let pendingReload = false;
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -111,36 +113,62 @@ const totalDuration = (segs) => segs.reduce((a, s) => a + s.dur, 0);
 
 let ctx = null;
 let silentEl = null;
+let silentTimer = null;
+let scheduledNodes = [];
 
 function makeSilentWavURI() {
-  // 1 s di silenzio, 8 kHz mono 8 bit: tiene attiva la sessione audio su iOS (e oltre l'interruttore silenzioso)
-  const n = 8000, buf = new ArrayBuffer(44 + n), v = new DataView(buf);
-  const w = (o, s) => [...s].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
-  w(0, 'RIFF'); v.setUint32(4, 36 + n, true); w(8, 'WAVE'); w(12, 'fmt ');
+  // 1 s a 8 kHz, 16 bit: un'onda a 10 Hz (non udibile) a bassissimo livello. Non è silenzio assoluto,
+  // così Android e iOS considerano la pagina "in riproduzione" e non la sospendono a schermo spento.
+  const n = 8000, bytes = n * 2, buf = new ArrayBuffer(44 + bytes), v = new DataView(buf);
+  const w = (o, str) => [...str].forEach((c, i) => v.setUint8(o + i, c.charCodeAt(0)));
+  w(0, 'RIFF'); v.setUint32(4, 36 + bytes, true); w(8, 'WAVE'); w(12, 'fmt ');
   v.setUint32(16, 16, true); v.setUint16(20, 1, true); v.setUint16(22, 1, true);
-  v.setUint32(24, 8000, true); v.setUint32(28, 8000, true); v.setUint16(32, 1, true); v.setUint16(34, 8, true);
-  w(36, 'data'); v.setUint32(40, n, true);
-  new Uint8Array(buf, 44).fill(128);
-  let bin = ''; new Uint8Array(buf).forEach(b => bin += String.fromCharCode(b));
+  v.setUint32(24, 8000, true); v.setUint32(28, 16000, true); v.setUint16(32, 2, true); v.setUint16(34, 16, true);
+  w(36, 'data'); v.setUint32(40, bytes, true);
+  for (let i = 0; i < n; i++) v.setInt16(44 + i * 2, Math.round(100 * Math.sin(2 * Math.PI * 10 * i / 8000)), true);
+  let bin = ''; new Uint8Array(buf).forEach(x => bin += String.fromCharCode(x));
   return 'data:audio/wav;base64,' + btoa(bin);
 }
 
 // Va chiamata dentro un gesto dell'utente (tap su AVVIA): iOS lo richiede.
 function initAudio() {
   try {
+    clearTimeout(silentTimer);
     if (navigator.audioSession) navigator.audioSession.type = 'playback';
-    if (!ctx) ctx = new (window.AudioContext || window.webkitAudioContext)();
-    if (ctx.state === 'suspended') ctx.resume();
-    if (!silentEl) {
-      silentEl = new Audio(makeSilentWavURI());
-      silentEl.loop = true;
-      silentEl.volume = 0.01;
+    if (!ctx) {
+      ctx = new (window.AudioContext || window.webkitAudioContext)();
+      // se il sistema interrompe e poi riavvia l'audio (chiamata, blocco schermo), riallinea i suoni programmati
+      ctx.addEventListener('statechange', () => {
+        if (ctx.state === 'running' && engine.running) { engine.tick(); if (engine.running) engine.schedule(); }
+      });
     }
+    if (ctx.state !== 'running') ctx.resume();
+    if (!silentEl) { silentEl = new Audio(makeSilentWavURI()); silentEl.loop = true; silentEl.volume = 1; }
     silentEl.play().catch(() => {});
   } catch { /* audio non disponibile */ }
 }
-function stopSilent() { try { silentEl && silentEl.pause(); } catch {} }
+function stopSilent(delay = 0) {
+  clearTimeout(silentTimer);
+  silentTimer = setTimeout(() => { if (!engine.active) { try { silentEl && silentEl.pause(); } catch {} } }, delay);
+}
 
+// Controlli sulla schermata di blocco / notifica (aiuta a tenere viva la pagina in background)
+function setupMediaSession(title) {
+  if (!('mediaSession' in navigator)) return;
+  try {
+    navigator.mediaSession.metadata = new MediaMetadata({
+      title: 'GymTimer', artist: title,
+      artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
+    });
+    navigator.mediaSession.playbackState = 'playing';
+    navigator.mediaSession.setActionHandler('pause', () => { if (engine.active && engine.running) { engine.pause(); ui.renderTimer(); } });
+    navigator.mediaSession.setActionHandler('play', () => { if (engine.active && !engine.running) { initAudio(); engine.resume(); ui.renderTimer(); } });
+  } catch {}
+}
+function setMediaState(st) { try { navigator.mediaSession.playbackState = st; } catch {} }
+function clearMediaSession() { try { navigator.mediaSession.playbackState = 'none'; navigator.mediaSession.metadata = null; } catch {} }
+
+// Programma un beep sull'orologio audio: suona anche se il JavaScript è rallentato o sospeso in background.
 function tone(freq, dur, when = 0, type = 'sine', gain = 1) {
   if (!state.sound.on || !ctx) return;
   const t = ctx.currentTime + when;
@@ -152,7 +180,17 @@ function tone(freq, dur, when = 0, type = 'sine', gain = 1) {
   g.gain.setValueAtTime(peak, t + Math.max(0.011, dur - 0.06));
   g.gain.exponentialRampToValueAtTime(0.0001, t + dur);
   o.connect(g); g.connect(ctx.destination);
+  o.onended = () => { try { o.disconnect(); g.disconnect(); } catch {} };
   o.start(t); o.stop(t + dur + 0.03);
+  if (scheduledNodes.length > 2000) scheduledNodes = scheduledNodes.filter(n => n.end > ctx.currentTime);
+  scheduledNodes.push({ o, g, end: t + dur + 0.03 });
+}
+function cancelScheduled() {
+  const nodes = scheduledNodes; scheduledNodes = [];
+  for (const { o, g } of nodes) {
+    try { o.stop(); } catch {}
+    try { o.disconnect(); g.disconnect(); } catch {}
+  }
 }
 
 function vibrate(pattern) {
@@ -168,19 +206,22 @@ function speak(text) {
   } catch {}
 }
 
+// `at` = secondi da adesso
 const SND = {
-  tick:  () => { tone(880, 0.12, 0, 'sine', 0.9); vibrate(40); },
-  go:    () => { tone(1320, 0.75, 0, 'square', 0.55); vibrate([200]); },
-  rest:  () => { tone(600, 0.22, 0, 'triangle'); tone(420, 0.4, 0.25, 'triangle'); vibrate([120, 60, 120]); },
-  minute: () => { tone(660, 0.18, 0, 'sine', 0.8); vibrate(60); },
-  half:  () => { tone(700, 0.15); tone(700, 0.15, 0.25); vibrate([80, 60, 80]); },
-  warn:  () => { tone(990, 0.15); tone(990, 0.15, 0.25); tone(990, 0.15, 0.5); vibrate([80, 60, 80, 60, 80]); },
-  end:   () => {
-    [0, 0.28, 0.56].forEach(t => tone(1047, 0.2, t, 'square', 0.5));
-    tone(1568, 1.0, 0.9, 'square', 0.55);
-    vibrate([300, 100, 300, 100, 600]);
+  tick:   (at = 0) => tone(880, 0.12, at, 'sine', 0.9),
+  go:     (at = 0) => tone(1320, 0.75, at, 'square', 0.55),
+  rest:   (at = 0) => { tone(600, 0.22, at, 'triangle'); tone(420, 0.4, at + 0.25, 'triangle'); },
+  minute: (at = 0) => tone(660, 0.18, at, 'sine', 0.8),
+  half:   (at = 0) => { tone(700, 0.15, at); tone(700, 0.15, at + 0.25); },
+  warn:   (at = 0) => { [0, 0.25, 0.5].forEach(d => tone(990, 0.15, at + d)); },
+  end:    (at = 0) => {
+    [0, 0.28, 0.56].forEach(d => tone(1047, 0.2, at + d, 'square', 0.5));
+    tone(1568, 1.0, at + 0.9, 'square', 0.55);
   },
 };
+const VIB = { tick: 40, go: [200], rest: [120, 60, 120], minute: 60, half: [80, 60, 80], warn: [80, 60, 80, 60, 80], end: [300, 100, 300, 100, 600] };
+// vibrazione + voce: funzionano solo con la pagina in primo piano (i suoni invece sono già programmati)
+function cue(name, text) { vibrate(VIB[name]); if (text) speak(text); }
 
 /* ---------------------------------------------------------------- wake lock */
 
@@ -199,7 +240,7 @@ function unlockScreen() { try { wakeLock && wakeLock.release(); } catch {} wakeL
 
 const engine = {
   segs: [], idx: 0, segMs: 0, totalMs: 0, totalDur: 0,
-  running: false, last: 0, handle: null,
+  running: false, active: false, last: 0, handle: null,
   lastCount: null, flags: {}, amrapRounds: 0, mode: 'tabata', cfg: null, capped: false, resultSec: 0, laps: [],
 
   start(mode, cfg) {
@@ -209,35 +250,76 @@ const engine = {
     this.idx = 0; this.segMs = 0; this.totalMs = 0;
     this.amrapRounds = 0; this.lastCount = null; this.flags = {};
     this.capped = false; this.resultSec = 0; this.laps = [];
-    this.running = true; this.last = performance.now();
+    this.active = true; this.running = true; this.last = Date.now();   // Date.now: resta corretto anche a telefono bloccato
     clearInterval(this.handle);
     this.handle = setInterval(() => this.tick(), 100);
     this.onSegmentStart(true);
+    this.schedule();
   },
 
-  pause() { this.tick(); this.running = false; clearInterval(this.handle); },
+  pause() { this.tick(); this.running = false; clearInterval(this.handle); cancelScheduled(); setMediaState('paused'); },
   resume() {
-    this.running = true; this.last = performance.now();
+    this.running = true; this.last = Date.now();
     clearInterval(this.handle);
     this.handle = setInterval(() => this.tick(), 100);
+    this.schedule(); setMediaState('playing');
   },
-  stop() { this.running = false; clearInterval(this.handle); },
+  stop() { this.running = false; this.active = false; clearInterval(this.handle); cancelScheduled(); clearMediaSession(); },
 
   get seg() { return this.segs[this.idx]; },
 
-  onSegmentStart() {
+  // Tutti i suoni futuri vengono programmati subito sull'orologio audio.
+  schedule() {
+    cancelScheduled();
+    if (!ctx || !this.running || !this.seg) return;
+    for (const e of this.audioEvents()) SND[e.snd](e.t);
+  },
+
+  // Elenco dei suoni da qui alla fine: { t: secondi da adesso, snd: nome }
+  audioEvents() {
+    const evs = [], LIMIT = 7200;                        // non pianificare oltre 2 ore
+    const add = (t, snd) => { if (t >= -0.02 && t <= LIMIT) evs.push({ t: Math.max(0, t), snd }); };
+    let S = -this.segMs / 1000;                          // inizio del segmento corrente rispetto ad ora
+    for (let i = this.idx; i < this.segs.length; i++) {
+      const s = this.segs[i], dur = s.dur;
+      if (s.type === 'work' && s.stopwatch) add(S, 'tick');
+      else if (s.type === 'work') add(S, 'go');
+      else if (s.type === 'rest') add(S, 'rest');
+      if (Number.isFinite(dur)) {
+        if (state.sound.countdown && dur > 3) [3, 2, 1].forEach(k => add(S + dur - k, 'tick'));
+        if (state.sound.mid && s.type === 'work' && (this.mode === 'tabata' || this.mode === 'emom') && dur >= 10) add(S + dur / 2, 'half');
+        if (s.amrap) {
+          if (dur >= 120) add(S + dur / 2, 'half');
+          if (dur > 150) add(S + dur - 60, 'warn');
+        }
+      }
+      if (s.forTime) {
+        const warnAt = (s.capped && dur > 150) ? dur - 60 : null;
+        if (warnAt !== null) add(S + warnAt, 'warn');
+        const maxMin = Number.isFinite(dur) ? Math.floor((dur - 1) / 60) : 120;
+        for (let m = 1; m <= maxMin; m++) { if (warnAt !== null && m * 60 === warnAt) continue; add(S + m * 60, 'minute'); }
+      }
+      S += dur;
+      if (!Number.isFinite(dur)) return evs;             // cronometro / For Time senza cap: nessuna fine
+    }
+    add(S, 'end');
+    return evs;
+  },
+
+  onSegmentStart(timely = true) {
     const s = this.seg;
     this.lastCount = null; this.flags = {};
-    if (s.type === 'work' && s.stopwatch) { SND.tick(); }
-    else if (s.type === 'work') { SND.go(); speak(this.mode === 'tabata' ? 'Lavoro' : 'Via'); }
-    else if (s.type === 'rest') { SND.rest(); speak('Recupero'); }
-    else if (s.type === 'prep') { speak('Preparati'); }
+    if (!timely) return;                                 // tornati dal background: niente vibrazione/voce in ritardo
+    if (s.type === 'work' && s.stopwatch) cue('tick');
+    else if (s.type === 'work') cue('go', this.mode === 'tabata' ? 'Lavoro' : 'Via');
+    else if (s.type === 'rest') cue('rest', 'Recupero');
+    else if (s.type === 'prep') speak('Preparati');
   },
 
   tick() {
     if (!this.running) return;
-    const now = performance.now();
-    const dt = now - this.last; this.last = now;
+    const now = Date.now();
+    const dt = Math.max(0, now - this.last); this.last = now;
     this.segMs += dt; this.totalMs += dt;
 
     let advanced = false;
@@ -247,45 +329,41 @@ const engine = {
       if (this.idx >= this.segs.length) { this.finish(); return; }
       advanced = true;
     }
-    if (advanced) this.onSegmentStart();
+    if (advanced) this.onSegmentStart(this.segMs < 1500);
 
     const s = this.seg;
     const remaining = Math.ceil((s.dur * 1000 - this.segMs) / 1000);
 
-    // conto alla rovescia 3-2-1
+    // vibrazione e voce (i suoni veri sono già programmati da schedule())
     if (state.sound.countdown && s.dur > 3 && remaining <= 3 && remaining >= 1 && remaining !== this.lastCount) {
-      this.lastCount = remaining; SND.tick();
+      this.lastCount = remaining; cue('tick');
     }
-    // segnale a metà lavoro (Tabata) / metà intervallo (EMOM)
     if (state.sound.mid && s.type === 'work' && (this.mode === 'tabata' || this.mode === 'emom') && s.dur >= 10 && !this.flags.mid) {
       const half = s.dur * 500;
-      if (this.segMs >= half) {
-        this.flags.mid = true;
-        if (this.segMs < half + 1500) { SND.half(); speak('Metà'); }   // se l'app era in background, non suonare in ritardo
-      }
+      if (this.segMs >= half) { this.flags.mid = true; if (this.segMs < half + 1500) cue('half', 'Metà'); }
     }
-    // avvisi extra per AMRAP
     if (s.amrap) {
       const left = s.dur - this.segMs / 1000;
-      if (!this.flags.half && s.dur >= 120 && left <= s.dur / 2) { this.flags.half = true; SND.half(); speak('Metà tempo'); }
-      if (!this.flags.min && s.dur > 150 && left <= 60) { this.flags.min = true; SND.warn(); speak('Ultimo minuto'); }
+      if (!this.flags.half && s.dur >= 120 && left <= s.dur / 2) { this.flags.half = true; cue('half', 'Metà tempo'); }
+      if (!this.flags.min && s.dur > 150 && left <= 60) { this.flags.min = true; cue('warn', 'Ultimo minuto'); }
     }
     if (s.forTime && s.type === 'work') {
       const minute = Math.floor(this.segMs / 60000);
       const left = s.dur - this.segMs / 1000;
       if (s.capped && !this.flags.warn && s.dur > 150 && left <= 60) {
-        this.flags.warn = true; this.flags.minute = minute; SND.warn(); speak('Ultimo minuto');
+        this.flags.warn = true; this.flags.minute = minute; cue('warn', 'Ultimo minuto');
       } else if (minute >= 1 && minute !== this.flags.minute) {
-        this.flags.minute = minute; SND.minute();
+        this.flags.minute = minute; cue('minute');
       }
     }
     ui.renderTimer();
   },
 
-  finish() {
-    this.running = false; clearInterval(this.handle);
-    this.capped = this.mode === 'fortime';          // arrivati a fine segmento = time cap
-    SND.end(); speak(this.capped ? 'Time cap' : 'Finito');
+  finish() {                                             // fine naturale: il suono finale è già programmato
+    this.running = false; this.active = false; clearInterval(this.handle);
+    this.capped = this.mode === 'fortime';               // arrivati a fine segmento = time cap
+    cue('end', this.capped ? 'Time cap' : 'Finito');
+    clearMediaSession();
     ui.showDone();
   },
 
@@ -302,9 +380,12 @@ const engine = {
   // For Time: l'atleta ha finito prima del cap
   finishNow() {
     this.tick();
-    this.running = false; clearInterval(this.handle);
+    if (!this.running) return;                           // il tick ha già chiuso (cap raggiunto)
+    this.running = false; this.active = false; clearInterval(this.handle);
+    cancelScheduled();                                   // via i beep dei minuti e il finale programmato
     this.capped = false; this.resultSec = Math.floor(this.segMs / 1000);
-    SND.end(); speak('Finito');
+    SND.end(); cue('end', 'Finito');
+    clearMediaSession();
     ui.showDone();
   },
 
@@ -316,6 +397,7 @@ const engine = {
 
 const ui = {
   show(id) {
+    if (id === 'setup' && pendingReload) { location.reload(); return; }
     $$('.screen').forEach(el => el.classList.toggle('active', el.id === id));
   },
 
@@ -399,7 +481,7 @@ const ui = {
   },
 
   showDone() {
-    unlockScreen(); stopSilent();
+    unlockScreen(); stopSilent(3000);      // lascia finire il suono finale prima di fermare l'audio
     let txt = `${MODE_NAMES[engine.mode]} · ${Number.isFinite(engine.totalDur) ? fmtClock(engine.totalDur) : 'senza cap'}`;
     if (engine.mode === 'amrap') txt += `\n<b>${engine.amrapRounds}</b>\ngiri completati`;
     if (engine.mode === 'fortime') {
@@ -419,6 +501,7 @@ function startWorkout() {
   lockScreen();
   ui.show('timer');
   engine.start(state.mode, state[state.mode]);
+  setupMediaSession(MODE_NAMES[state.mode]);
   ui.renderTimer();
 }
 function exitWorkout() {
@@ -448,6 +531,7 @@ $('#btn-minus').addEventListener('click', () => { engine.amrapRounds = Math.max(
 // impostazioni
 const S = state.sound;
 function openSettings() {
+  $('#app-version').textContent = `GymTimer v${APP_VERSION}`;
   $('#s-sound').checked = S.on;
   $('#s-volume').value = S.volume;
   $('#s-countdown').checked = S.countdown;
@@ -475,6 +559,7 @@ document.addEventListener('visibilitychange', () => {
     lockScreen();
     if (ctx && ctx.state !== 'running') ctx.resume();
     engine.tick();
+    if (engine.running) engine.schedule();     // riallinea i suoni all'orologio reale
   }
 });
 
@@ -502,6 +587,13 @@ if (isIOS && !isStandalone) {
 }
 
 if ('serviceWorker' in navigator) {
+  const hadController = !!navigator.serviceWorker.controller;
+  // quando arriva una nuova versione ricarica da sola (ma mai durante un allenamento)
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (!hadController) return;                       // primo install: niente reload
+    if ($('#setup').classList.contains('active')) location.reload();
+    else pendingReload = true;                        // lo faremo al ritorno alla schermata iniziale
+  });
   window.addEventListener('load', () => navigator.serviceWorker.register('sw.js').catch(() => {}));
 }
 

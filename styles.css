@@ -38,7 +38,7 @@ button:active { transform: scale(.97); }
 /* ---------- setup ---------- */
 header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
 h1 { margin: 0; font-size: 1.5rem; letter-spacing: .5px; }
-.icon-btn { background: var(--card); width: 42px; height: 42px; border-radius: 12px; font-size: 1.3rem; }
+.icon-btn { background: var(--card); color: var(--text); width: 44px; height: 44px; border-radius: 12px; display: flex; align-items: center; justify-content: center; }
 
 .tabs { display: grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap: 8px; }
 .tabs button { --c: var(--accent); --ct: #fff; grid-column: span 2; background: transparent; padding: 13px 0; border-radius: 12px; font-weight: 700; font-size: .95rem; color: var(--text); border: 2px solid var(--c); display: flex; align-items: center; justify-content: center; gap: 7px; }
@@ -59,7 +59,8 @@ body[data-mode="amrap"]   { --mc: #facc15; --mc-text: #1a1500; }
 body[data-mode="fortime"] { --mc: #2563eb; --mc-text: #fff; }
 body[data-mode="stopwatch"] { --mc: #fb923c; --mc-text: #1c0a00; }
 
-.mode-desc { color: var(--muted); font-size: .9rem; margin: 12px 2px 6px; min-height: 2.6em; }
+.mode-desc { color: #a3abba; font-size: .9rem; line-height: 1.4; margin: 12px 2px 6px; min-height: 2.6em; }
+.version { text-align: center; color: #6b7384; font-size: .8rem; margin: 12px 0 0; }
 
 .fields { display: flex; flex-direction: column; gap: 10px; margin: 8px 0 14px; }
 .field { display: flex; align-items: center; justify-content: space-between; background: var(--card); border-radius: 14px; padding: 10px 12px; }

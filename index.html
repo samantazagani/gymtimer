@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="it">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover, user-scalable=no">
+<meta name="theme-color" content="#0f1115">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="GymTimer">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="apple-touch-icon" href="icons/icon-180.png">
+<link rel="icon" type="image/png" href="icons/icon-192.png">
+<link rel="stylesheet" href="styles.css">
+<title>GymTimer</title>
+</head>
+<body>
+
+<!-- ================= SETUP ================= -->
+<main id="setup" class="screen active">
+  <header>
+    <h1>GymTimer</h1>
+    <button id="btn-settings" class="icon-btn" aria-label="Impostazioni">⚙︎</button>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button role="tab" data-mode="tabata">Tabata</button>
+    <button role="tab" data-mode="emom">EMOM</button>
+    <button role="tab" data-mode="amrap">AMRAP</button>
+    <button role="tab" data-mode="fortime">For Time</button>
+  </nav>
+
+  <p id="mode-desc" class="mode-desc"></p>
+
+  <section id="fields" class="fields"></section>
+
+  <div class="summary">
+    <span id="total-label">Durata totale</span>
+    <strong id="total-time">—</strong>
+  </div>
+
+  <button id="btn-start" class="primary big">AVVIA</button>
+
+  <p id="install-hint" class="hint" hidden></p>
+  <button id="btn-install" class="secondary" hidden>Installa sul telefono</button>
+</main>
+
+<!-- ================= TIMER ================= -->
+<main id="timer" class="screen">
+  <div class="top">
+    <span id="t-mode" class="pill"></span>
+    <span id="t-round" class="pill"></span>
+  </div>
+
+  <div class="center">
+    <div id="t-label" class="phase-label">—</div>
+    <div id="t-time" class="clock">0:00</div>
+    <div id="t-next" class="next"></div>
+  </div>
+
+  <div class="progress"><div id="t-bar"></div></div>
+  <div class="total-line"><span>Totale rimanente</span><strong id="t-total">0:00</strong></div>
+
+  <div id="amrap-box" class="amrap-box" hidden>
+    <button id="btn-minus" class="round-btn small" aria-label="Togli un giro">−</button>
+    <div class="amrap-count"><span id="amrap-n">0</span><small>giri</small></div>
+    <button id="btn-plus" class="round-btn" aria-label="Aggiungi un giro">+1</button>
+  </div>
+
+  <div id="ft-box" class="ft-box" hidden>
+    <button id="btn-finish" class="round-btn finish">FINITO!</button>
+  </div>
+
+  <div class="controls">
+    <button id="btn-pause" class="primary">PAUSA</button>
+    <button id="btn-exit" class="danger" hidden>ESCI</button>
+  </div>
+</main>
+
+<!-- ================= FINE ================= -->
+<main id="done" class="screen">
+  <div class="center">
+    <div class="phase-label">FATTO!</div>
+    <div id="done-summary" class="done-summary"></div>
+  </div>
+  <div class="controls">
+    <button id="btn-again" class="primary">RIPETI</button>
+    <button id="btn-close" class="secondary">CHIUDI</button>
+  </div>
+</main>
+
+<!-- ================= IMPOSTAZIONI ================= -->
+<div id="settings" class="sheet" hidden>
+  <div class="sheet-card">
+    <h2>Impostazioni</h2>
+
+    <label class="row">
+      <span>Suoni</span>
+      <input type="checkbox" id="s-sound">
+    </label>
+
+    <label class="row">
+      <span>Volume</span>
+      <input type="range" id="s-volume" min="0.1" max="1" step="0.05">
+    </label>
+
+    <label class="row">
+      <span>Conto alla rovescia 3-2-1</span>
+      <input type="checkbox" id="s-countdown">
+    </label>
+
+    <label class="row">
+      <span>Vibrazione <small>(solo Android)</small></span>
+      <input type="checkbox" id="s-vibrate">
+    </label>
+
+    <label class="row">
+      <span>Voce <small>("Lavoro", "Recupero")</small></span>
+      <input type="checkbox" id="s-voice">
+    </label>
+
+    <button id="btn-test" class="secondary">Prova i suoni</button>
+    <button id="btn-settings-close" class="primary">Chiudi</button>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

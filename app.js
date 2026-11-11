@@ -1,7 +1,7 @@
 'use strict';
 
 /* =====================================================================
-   GymTimer — Tabata / EMOM / AMRAP
+   SemmyTimer — Tabata / EMOM / AMRAP / For Time / Cronometro
    Tutto locale: nessun server, nessun tracciamento. Impostazioni in localStorage.
    ===================================================================== */
 
@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 7;           // tienila uguale al numero in sw.js (gymtimer-vN)
+const APP_VERSION = 8;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -173,7 +173,7 @@ function refreshMedia(syncPosition = false) {
       mediaKey = key;
       navigator.mediaSession.metadata = new MediaMetadata({
         title: s.label,
-        artist: `GymTimer · ${MODE_NAMES[engine.mode]}${s.rounds ? ` · Round ${s.round}/${s.rounds}` : ''}`,
+        artist: `SemmyTimer · ${MODE_NAMES[engine.mode]}${s.rounds ? ` · Round ${s.round}/${s.rounds}` : ''}`,
         artwork: [{ src: 'icons/icon-512.png', sizes: '512x512', type: 'image/png' }],
       });
     }
@@ -392,11 +392,19 @@ const engine = {
 
   // Cronometro: segna un parziale
   lap() {
-    if (!this.running || !this.seg.stopwatch) return;
-    const total = this.segMs / 1000;
+    if (!this.running || !(this.seg.stopwatch || this.seg.amrap)) return;
+    const total = this.segMs / 1000;                    // dall'inizio del cronometro / dell'AMRAP (preparazione esclusa)
     const last = this.laps.length ? this.laps[0].total : 0;
     this.laps.unshift({ n: this.laps.length + 1, split: total - last, total });
+    this.amrapRounds = this.laps.length;
     vibrate(30);
+    ui.renderTimer();
+  },
+
+  // toglie l'ultimo giro (se hai toccato +1 per sbaglio)
+  undoLap() {
+    if (!this.laps.length) return;
+    this.laps.shift(); this.amrapRounds = this.laps.length;
     ui.renderTimer();
   },
 
@@ -422,6 +430,8 @@ const ui = {
   show(id) {
     if (id === 'setup' && pendingReload) { location.reload(); return; }
     $$('.screen').forEach(el => el.classList.toggle('active', el.id === id));
+    // togliamo dalla cronologia la voce aggiunta all'avvio, così "indietro" dalla home esce dall'app
+    if (id === 'setup' && history.state && history.state.gt === 'timer') history.back();
   },
 
   renderSetup() {
@@ -475,7 +485,7 @@ const ui = {
 
     $('#t-mode').textContent = MODE_NAMES[engine.mode];
     $('#t-round').textContent = s.rounds ? `Round ${s.round}/${s.rounds}`
-      : s.amrap ? `Giri ${engine.amrapRounds}`
+      : s.amrap ? `Giri ${engine.laps.length}`
       : s.forTime ? (s.capped ? `Cap ${fmtClock(s.dur)}` : 'Senza cap')
       : s.stopwatch ? `Giri ${engine.laps.length}` : '';
     $('#t-label').textContent = s.label;
@@ -483,13 +493,19 @@ const ui = {
 
     const n = engine.nextSeg();
     $('#t-next').textContent = n ? `Poi: ${n.label} ${Number.isFinite(n.dur) ? fmtClock(n.dur) : ''}`.trim()
-      : s.forTime ? 'Tocca FINITO quando hai terminato' : (s.amrap || s.stopwatch ? '' : 'Ultimo!');
+      : s.forTime ? 'Tocca FINITO quando hai terminato' : (s.amrap ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : s.stopwatch ? '' : 'Ultimo!');
     const rem = engine.totalRemaining();
     $('#t-total').textContent = Number.isFinite(rem) ? fmtClock(rem) : '—';
     $('#t-bar').style.width = `${Math.min(100, (engine.totalMs / 1000 / engine.totalDur) * 100)}%`;
 
     $('#amrap-box').hidden = !(engine.mode === 'amrap' && s.type === 'work');
-    $('#amrap-n').textContent = engine.amrapRounds;
+    $('#amrap-n').textContent = engine.laps.length;
+    const amrapLaps = engine.mode === 'amrap' && s.type === 'work' && engine.laps.length > 0;
+    $('#amrap-laps').hidden = !amrapLaps;
+    if (amrapLaps) {
+      $('#amrap-laps').innerHTML = engine.laps.slice(0, 3)
+        .map(l => `<li><span>Giro ${l.n} · ${fmtElapsed(l.split)}</span><span>totale ${fmtElapsed(l.total)}</span></li>`).join('');
+    }
     $('#ft-box').hidden = !(engine.mode === 'fortime' && s.type === 'work');
     $('#sw-box').hidden = !s.stopwatch;
     $('.progress').hidden = !!s.stopwatch;
@@ -506,13 +522,25 @@ const ui = {
   showDone() {
     unlockScreen(); stopSilent(3000);      // lascia finire il suono finale prima di fermare l'audio
     let txt = `${MODE_NAMES[engine.mode]} · ${Number.isFinite(engine.totalDur) ? fmtClock(engine.totalDur) : 'senza cap'}`;
-    if (engine.mode === 'amrap') txt += `\n<b>${engine.amrapRounds}</b>\ngiri completati`;
+    const n = engine.laps.length;
+    if (engine.mode === 'amrap') {
+      txt += `\n<b>${n}</b>\ngiri completati`;
+      if (n > 0) {
+        const best = engine.laps.reduce((a, l) => (l.split < a.split ? l : a));
+        txt += `\nMedia a giro ${fmtElapsed(engine.laps[0].total / n)}\nGiro più veloce ${fmtElapsed(best.split)} (n. ${best.n})`;
+      }
+    }
     if (engine.mode === 'fortime') {
       txt = engine.capped
         ? `${MODE_NAMES[engine.mode]}\n<b>Time cap</b>\nraggiunto`
         : `${MODE_NAMES[engine.mode]}\n<b>${fmtElapsed(engine.resultSec)}</b>\ntempo finale`;
     }
     $('#done-summary').innerHTML = txt;
+    const dl = $('#done-laps');
+    dl.hidden = !(engine.mode === 'amrap' && n > 0);
+    dl.innerHTML = [...engine.laps].reverse()
+      .map(l => `<li><span>Giro ${l.n}</span><span>${fmtElapsed(l.split)}</span></li>`).join('');
+    closeConfirm();
     ui.show('done');
   },
 };
@@ -520,6 +548,8 @@ const ui = {
 /* ---------------------------------------------------------------- eventi */
 
 function startWorkout() {
+  // una voce di cronologia in più: il tasto "indietro" del telefono chiede conferma invece di uscire
+  if (!(history.state && history.state.gt === 'timer')) history.pushState({ gt: 'timer' }, '');
   initAudio();           // dentro il gesto utente
   lockScreen();
   ui.show('timer');
@@ -528,6 +558,7 @@ function startWorkout() {
   ui.renderTimer();
 }
 function exitWorkout() {
+  closeConfirm();
   engine.stop(); unlockScreen(); stopSilent();
   try { speechSynthesis.cancel(); } catch {}
   ui.show('setup');
@@ -548,13 +579,27 @@ $('#btn-pause').addEventListener('click', () => {
 });
 $('#btn-lap').addEventListener('click', () => engine.lap());
 $('#btn-finish').addEventListener('click', () => engine.finishNow());
-$('#btn-plus').addEventListener('click', () => { engine.amrapRounds++; vibrate(30); ui.renderTimer(); });
-$('#btn-minus').addEventListener('click', () => { engine.amrapRounds = Math.max(0, engine.amrapRounds - 1); ui.renderTimer(); });
+$('#btn-plus').addEventListener('click', () => engine.lap());
+$('#btn-minus').addEventListener('click', () => engine.undoLap());
+
+// conferma uscita (tasto indietro del telefono)
+function openConfirm() { $('#confirm').hidden = false; }
+function closeConfirm() { $('#confirm').hidden = true; }
+window.addEventListener('popstate', () => {
+  if (engine.active) {                                  // allenamento in corso o in pausa
+    history.pushState({ gt: 'timer' }, '');             // annulla l'"indietro": restiamo qui
+    openConfirm();                                      // il timer continua a girare mentre decidi
+  } else if ($('#done').classList.contains('active')) {
+    ui.show('setup');                                   // dalla schermata finale, indietro = home
+  }
+});
+$('#btn-continue').addEventListener('click', closeConfirm);
+$('#btn-stop').addEventListener('click', exitWorkout);
 
 // impostazioni
 const S = state.sound;
 function openSettings() {
-  $('#app-version').textContent = `GymTimer v${APP_VERSION}`;
+  $('#app-version').textContent = `SemmyTimer v${APP_VERSION}`;
   $('#s-sound').checked = S.on;
   $('#s-volume').value = S.volume;
   $('#s-countdown').checked = S.countdown;

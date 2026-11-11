@@ -1,6 +1,6 @@
 {
-  "name": "GymTimer",
-  "short_name": "GymTimer",
+  "name": "SemmyTimer",
+  "short_name": "SemmyTimer",
   "description": "Timer per Tabata, EMOM e AMRAP. Funziona offline.",
   "lang": "it",
   "start_url": "./",

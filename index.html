@@ -7,19 +7,19 @@
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-<meta name="apple-mobile-web-app-title" content="GymTimer">
+<meta name="apple-mobile-web-app-title" content="SemmyTimer">
 <link rel="manifest" href="manifest.webmanifest">
 <link rel="apple-touch-icon" href="icons/icon-180.png">
 <link rel="icon" type="image/png" href="icons/icon-192.png">
 <link rel="stylesheet" href="styles.css">
-<title>GymTimer</title>
+<title>SemmyTimer</title>
 </head>
 <body>
 
 <!-- ================= SETUP ================= -->
 <main id="setup" class="screen active">
   <header>
-    <h1>GymTimer</h1>
+    <h1>SemmyTimer</h1>
     <button id="btn-settings" class="icon-btn" aria-label="Impostazioni"><svg aria-hidden="true" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><line x1="4" y1="7" x2="20" y2="7"/><circle cx="9" cy="7" r="2.5" fill="#1a1d24"/><line x1="4" y1="17" x2="20" y2="17"/><circle cx="15" cy="17" r="2.5" fill="#1a1d24"/></svg></button>
   </header>
 
@@ -62,6 +62,8 @@
   <div class="progress"><div id="t-bar"></div></div>
   <div class="total-line"><span>Totale rimanente</span><strong id="t-total">0:00</strong></div>
 
+  <ol id="amrap-laps" class="lap-list compact" aria-label="Durata dei giri" hidden></ol>
+
   <div id="amrap-box" class="amrap-box" hidden>
     <button id="btn-minus" class="round-btn small" aria-label="Togli un giro">−</button>
     <div class="amrap-count"><span id="amrap-n">0</span><small>giri</small></div>
@@ -88,12 +90,23 @@
   <div class="center">
     <div class="phase-label">FATTO!</div>
     <div id="done-summary" class="done-summary"></div>
+    <ol id="done-laps" class="lap-list scroll" aria-label="Durata dei giri" hidden></ol>
   </div>
   <div class="controls">
     <button id="btn-again" class="primary">RIPETI</button>
     <button id="btn-close" class="secondary">CHIUDI</button>
   </div>
 </main>
+
+<!-- ================= CONFERMA USCITA ================= -->
+<div id="confirm" class="sheet" hidden>
+  <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
+    <h2 id="confirm-title">Interrompere l'allenamento?</h2>
+    <p class="confirm-text">Il timer si ferma e questa sessione non viene salvata.</p>
+    <button id="btn-continue" class="primary">CONTINUA</button>
+    <button id="btn-stop" class="danger">INTERROMPI</button>
+  </div>
+</div>
 
 <!-- ================= IMPOSTAZIONI ================= -->
 <div id="settings" class="sheet" hidden>

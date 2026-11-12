@@ -10,15 +10,15 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 8;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 9;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
   mode: 'tabata',
   tabata: { prep: 10, work: 20, rest: 10, rounds: 8 },
-  emom:   { prep: 10, interval: 60, rounds: 10 },
+  emom:   { prep: 10, interval: 60, rounds: 10, style: 'classic', start: 1, inc: 1 },
   amrap:  { prep: 10, minutes: 12 },
-  fortime: { prep: 10, cap: 15 },
+  fortime: { prep: 10, cap: 15, count: 'no', target: 0 },
   stopwatch: {},
   sound:  { on: true, volume: 0.8, countdown: true, mid: true, vibrate: true, voice: false },
 };
@@ -33,7 +33,10 @@ const FIELDS = {
   emom: [
     { key: 'prep',     label: 'Preparazione',     min: 0,  max: 60,  step: 5,  fmt: 'time' },
     { key: 'interval', label: 'Ogni',             min: 15, max: 300, step: 15, fmt: 'time' },
-    { key: 'rounds',   label: 'Round',            min: 1,  max: 60,  step: 1,  fmt: 'n' },
+    { key: 'style',    label: 'Stile', kind: 'choice', options: [['classic', 'Classico'], ['deathby', 'Death by']] },
+    { key: 'rounds',   label: 'Round',            min: 1,  max: 60,  step: 1,  fmt: 'n',    when: c => c.style !== 'deathby' },
+    { key: 'start',    label: 'Parti da',         min: 1,  max: 50,  step: 1,  fmt: 'rep',  when: c => c.style === 'deathby' },
+    { key: 'inc',      label: 'Aumento',          min: 1,  max: 10,  step: 1,  fmt: 'plus', when: c => c.style === 'deathby' },
   ],
   amrap: [
     { key: 'prep',    label: 'Preparazione', min: 0, max: 60, step: 5, fmt: 'time' },
@@ -42,6 +45,8 @@ const FIELDS = {
   fortime: [
     { key: 'prep', label: 'Preparazione', min: 0, max: 60, step: 5, fmt: 'time' },
     { key: 'cap',  label: 'Time cap',     min: 0, max: 90, step: 1, fmt: 'cap' },
+    { key: 'count',  label: 'Conta i giri', kind: 'choice', options: [['no', 'No'], ['yes', 'Sì']] },
+    { key: 'target', label: 'Giri previsti', min: 0, max: 50, step: 1, fmt: 'target', when: c => c.count === 'yes' },
   ],
   stopwatch: [],
 };
@@ -49,9 +54,9 @@ const FIELDS = {
 const MODE_NAMES = { tabata: 'TABATA', emom: 'EMOM', amrap: 'AMRAP', fortime: 'FOR TIME', stopwatch: 'CRONOMETRO' };
 const MODE_DESC = {
   tabata: 'Lavoro e recupero a intervalli fissi, per un numero di round. Classico: 20" lavoro / 10" recupero × 8.',
-  emom:   'Every Minute On the Minute: a ogni scadenza parte un nuovo round. Quello che avanza è recupero.',
+  emom:   'Every Minute On the Minute: a ogni scadenza parte un nuovo round. Quello che avanza è recupero. Con "Death by" a ogni minuto fai una ripetizione in più, finché cedi.',
   amrap:  'As Many Rounds As Possible: più giri possibili nel tempo stabilito. Tocca +1 a ogni giro.',
-  fortime: 'Completa il lavoro il più in fretta possibile: il tempo sale, tocca FINITO quando hai terminato. Con il time cap suona allo scadere.',
+  fortime: 'Completa il lavoro il più in fretta possibile: il tempo sale, tocca FINITO quando hai terminato. Con il time cap suona allo scadere. Puoi anche contare i giri.',
   stopwatch: 'Un semplice cronometro: avvia, ferma e tocca GIRO per segnare i parziali.',
 };
 
@@ -83,7 +88,7 @@ const fmtClock = (sec) => {
   return `${m}:${String(s).padStart(2, '0')}`;
 };
 const fmtElapsed = (sec) => fmtClock(Math.floor(sec));
-const fmtValue = (v, kind) => kind === 'time' ? fmtClock(v) : kind === 'min' ? `${v} min` : kind === 'cap' ? (v === 0 ? 'Nessuno' : `${v} min`) : String(v);
+const fmtValue = (v, kind) => kind === 'time' ? fmtClock(v) : kind === 'min' ? `${v} min` : kind === 'cap' ? (v === 0 ? 'Nessuno' : `${v} min`) : kind === 'rep' ? `${v} rip.` : kind === 'plus' ? `+${v}` : kind === 'target' ? (v === 0 ? 'Liberi' : String(v)) : String(v);
 
 function buildSegments(mode, c) {
   const segs = [];
@@ -93,6 +98,11 @@ function buildSegments(mode, c) {
     for (let i = 1; i <= c.rounds; i++) {
       segs.push({ type: 'work', dur: c.work, label: 'LAVORO', round: i, rounds: c.rounds });
       if (c.rest > 0 && i < c.rounds) segs.push({ type: 'rest', dur: c.rest, label: 'RECUPERO', round: i, rounds: c.rounds });
+    }
+  } else if (mode === 'emom' && c.style === 'deathby') {
+    for (let i = 1; i <= 60; i++) {                       // fino a 60 minuti: oltre non si arriva
+      const reps = c.start + (i - 1) * c.inc;
+      segs.push({ type: 'work', dur: c.interval, label: `${reps} RIP.`, round: i, deathBy: true, reps });
     }
   } else if (mode === 'emom') {
     for (let i = 1; i <= c.rounds; i++) {
@@ -263,7 +273,7 @@ function unlockScreen() { try { wakeLock && wakeLock.release(); } catch {} wakeL
 
 const engine = {
   segs: [], idx: 0, segMs: 0, totalMs: 0, totalDur: 0,
-  running: false, active: false, last: 0, handle: null,
+  running: false, active: false, last: 0, handle: null, deathBy: false, deathResult: null,
   lastCount: null, flags: {}, amrapRounds: 0, mode: 'tabata', cfg: null, capped: false, resultSec: 0, laps: [],
 
   start(mode, cfg) {
@@ -273,6 +283,7 @@ const engine = {
     this.idx = 0; this.segMs = 0; this.totalMs = 0;
     this.amrapRounds = 0; this.lastCount = null; this.flags = {};
     this.capped = false; this.resultSec = 0; this.laps = [];
+    this.deathBy = mode === 'emom' && cfg.style === 'deathby'; this.deathResult = null;
     this.active = true; this.running = true; this.last = Date.now();   // Date.now: resta corretto anche a telefono bloccato
     clearInterval(this.handle);
     this.handle = setInterval(() => this.tick(), 100);
@@ -334,7 +345,7 @@ const engine = {
     this.lastCount = null; this.flags = {};
     if (!timely) return;                                 // tornati dal background: niente vibrazione/voce in ritardo
     if (s.type === 'work' && s.stopwatch) cue('tick');
-    else if (s.type === 'work') cue('go', this.mode === 'tabata' ? 'Lavoro' : 'Via');
+    else if (s.type === 'work') cue('go', s.deathBy ? `Fai ${s.reps}` : this.mode === 'tabata' ? 'Lavoro' : 'Via');
     else if (s.type === 'rest') cue('rest', 'Recupero');
     else if (s.type === 'prep') speak('Preparati');
   },
@@ -382,8 +393,31 @@ const engine = {
     ui.renderTimer();
   },
 
+  // Death by: failedAt = minuto in cui ha ceduto; done = minuti completati
+  calcDeath(failedAt) {
+    const c = this.cfg, done = failedAt - 1;
+    return {
+      failedAt, done,
+      repsLast: done > 0 ? c.start + (done - 1) * c.inc : 0,
+      total: done > 0 ? done * c.start + c.inc * done * (done - 1) / 2 : 0,
+      failedReps: c.start + (failedAt - 1) * c.inc,
+    };
+  },
+
+  failNow() {
+    this.tick();
+    if (!this.running || !this.deathBy) return;
+    this.running = false; this.active = false; clearInterval(this.handle);
+    cancelScheduled();
+    this.deathResult = this.calcDeath(this.seg.round);
+    SND.end(); cue('end', 'Finito');
+    clearMediaSession();
+    ui.showDone();
+  },
+
   finish() {                                             // fine naturale: il suono finale è già programmato
     this.running = false; this.active = false; clearInterval(this.handle);
+    if (this.deathBy) this.deathResult = this.calcDeath(this.segs.length + 1);
     this.capped = this.mode === 'fortime';               // arrivati a fine segmento = time cap
     cue('end', this.capped ? 'Time cap' : 'Finito');
     clearMediaSession();
@@ -392,13 +426,15 @@ const engine = {
 
   // Cronometro: segna un parziale
   lap() {
-    if (!this.running || !(this.seg.stopwatch || this.seg.amrap)) return;
+    if (!this.running || !(this.seg.stopwatch || this.seg.amrap || (this.seg.forTime && this.cfg.count === 'yes'))) return;
     const total = this.segMs / 1000;                    // dall'inizio del cronometro / dell'AMRAP (preparazione esclusa)
     const last = this.laps.length ? this.laps[0].total : 0;
     this.laps.unshift({ n: this.laps.length + 1, split: total - last, total });
     this.amrapRounds = this.laps.length;
     vibrate(30);
     ui.renderTimer();
+    // For Time con giri previsti: l'ultimo +1 chiude l'allenamento
+    if (this.seg.forTime && this.cfg.target > 0 && this.laps.length >= this.cfg.target) this.finishNow();
   },
 
   // toglie l'ultimo giro (se hai toccato +1 per sbaglio)
@@ -442,6 +478,21 @@ const ui = {
     const box = $('#fields');
     box.innerHTML = '';
     for (const f of FIELDS[state.mode]) {
+      if (f.when && !f.when(state[state.mode])) continue;
+      if (f.kind === 'choice') {
+        const row = document.createElement('div');
+        row.className = 'field';
+        row.innerHTML = `<span class="name">${f.label}</span><div class="choice" role="group" aria-label="${f.label}"></div>`;
+        for (const [val, text] of f.options) {
+          const b = document.createElement('button');
+          b.textContent = text;
+          b.classList.toggle('on', state[state.mode][f.key] === val);
+          b.addEventListener('click', () => { state[state.mode][f.key] = val; saveState(); ui.renderSetup(); });
+          row.querySelector('.choice').appendChild(b);
+        }
+        box.appendChild(row);
+        continue;
+      }
       const row = document.createElement('div');
       row.className = 'field';
       row.innerHTML = `
@@ -470,13 +521,15 @@ const ui = {
     const segs = buildSegments(state.mode, state[state.mode]);
     const tot = totalDuration(segs);
     $('.summary').hidden = state.mode === 'stopwatch';
+    const deathBy = state.mode === 'emom' && state.emom.style === 'deathby';
     $('#total-label').textContent = state.mode === 'fortime' ? 'Durata massima' : 'Durata totale';
-    $('#total-time').textContent = Number.isFinite(tot) ? fmtClock(tot) : 'Senza limite';
+    $('#total-time').textContent = deathBy ? 'Fino al cedimento' : Number.isFinite(tot) ? fmtClock(tot) : 'Senza limite';
   },
 
   renderTimer() {
     const s = engine.seg;
     if (!s) return;
+    const counting = engine.mode === 'fortime' && engine.cfg.count === 'yes';
     const el = $('#timer');
     el.classList.remove('prep', 'work', 'rest');
     [...el.classList].filter(c => c.startsWith('m-')).forEach(c => el.classList.remove(c));
@@ -486,30 +539,34 @@ const ui = {
     $('#t-mode').textContent = MODE_NAMES[engine.mode];
     $('#t-round').textContent = s.rounds ? `Round ${s.round}/${s.rounds}`
       : s.amrap ? `Giri ${engine.laps.length}`
-      : s.forTime ? (s.capped ? `Cap ${fmtClock(s.dur)}` : 'Senza cap')
+      : s.deathBy ? `${engine.cfg.interval === 60 ? 'Minuto' : 'Round'} ${s.round}`
+      : s.forTime ? (counting ? `Giri ${engine.laps.length}${engine.cfg.target > 0 ? '/' + engine.cfg.target : ''}` : s.capped ? `Cap ${fmtClock(s.dur)}` : 'Senza cap')
       : s.stopwatch ? `Giri ${engine.laps.length}` : '';
     $('#t-label').textContent = s.label;
     $('#t-time').textContent = (s.forTime || s.stopwatch) ? fmtElapsed(engine.segMs / 1000) : fmtClock((s.dur * 1000 - engine.segMs) / 1000);
 
     const n = engine.nextSeg();
     $('#t-next').textContent = n ? `Poi: ${n.label} ${Number.isFinite(n.dur) ? fmtClock(n.dur) : ''}`.trim()
-      : s.forTime ? 'Tocca FINITO quando hai terminato' : (s.amrap ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : s.stopwatch ? '' : 'Ultimo!');
+      : s.forTime ? (counting ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : 'Tocca FINITO quando hai terminato') : (s.amrap ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : s.stopwatch ? '' : 'Ultimo!');
     const rem = engine.totalRemaining();
     $('#t-total').textContent = Number.isFinite(rem) ? fmtClock(rem) : '—';
     $('#t-bar').style.width = `${Math.min(100, (engine.totalMs / 1000 / engine.totalDur) * 100)}%`;
 
-    $('#amrap-box').hidden = !(engine.mode === 'amrap' && s.type === 'work');
+    $('#amrap-box').hidden = !((engine.mode === 'amrap' || counting) && s.type === 'work');
+    $('#amrap-unit').textContent = counting && engine.cfg.target > 0 ? `su ${engine.cfg.target}` : 'giri';
     $('#amrap-n').textContent = engine.laps.length;
-    const amrapLaps = engine.mode === 'amrap' && s.type === 'work' && engine.laps.length > 0;
+    const amrapLaps = (engine.mode === 'amrap' || counting) && s.type === 'work' && engine.laps.length > 0;
     $('#amrap-laps').hidden = !amrapLaps;
     if (amrapLaps) {
       $('#amrap-laps').innerHTML = engine.laps.slice(0, 3)
         .map(l => `<li><span>Giro ${l.n} · ${fmtElapsed(l.split)}</span><span>totale ${fmtElapsed(l.total)}</span></li>`).join('');
     }
     $('#ft-box').hidden = !(engine.mode === 'fortime' && s.type === 'work');
+    $('#ft-box').classList.toggle('compact', counting);
+    $('#db-box').hidden = !(engine.deathBy && s.type === 'work');
     $('#sw-box').hidden = !s.stopwatch;
-    $('.progress').hidden = !!s.stopwatch;
-    $('.total-line').hidden = !!s.stopwatch;
+    $('.progress').hidden = !!s.stopwatch || engine.deathBy;
+    $('.total-line').hidden = !!s.stopwatch || engine.deathBy;
     if (s.stopwatch) {
       $('#lap-list').innerHTML = engine.laps.slice(0, 3)
         .map(l => `<li><span>Giro ${l.n} · ${fmtElapsed(l.split)}</span><span>totale ${fmtElapsed(l.total)}</span></li>`).join('');
@@ -534,10 +591,18 @@ const ui = {
       txt = engine.capped
         ? `${MODE_NAMES[engine.mode]}\n<b>Time cap</b>\nraggiunto`
         : `${MODE_NAMES[engine.mode]}\n<b>${fmtElapsed(engine.resultSec)}</b>\ntempo finale`;
+      if (n > 0) txt += `\n${n} ${n === 1 ? 'giro' : 'giri'} · media ${fmtElapsed(engine.laps[0].total / n)} a giro`;
+    }
+    if (engine.deathBy && engine.deathResult) {
+      const r = engine.deathResult, unit = engine.cfg.interval === 60 ? 'minuto' : 'round';
+      txt = `EMOM · DEATH BY\n<b>${r.done}</b>\n${r.done === 1 ? unit : unit === 'minuto' ? 'minuti completati' : 'round completati'}`;
+      if (r.done === 1) txt += ' completato';
+      if (r.done > 0) txt += `\nUltimo: ${r.repsLast} ripetizioni · totale ${r.total}`;
+      if (r.failedAt <= engine.segs.length) txt += `\nHai ceduto al ${unit} ${r.failedAt} (${r.failedReps} rip.)`;
     }
     $('#done-summary').innerHTML = txt;
     const dl = $('#done-laps');
-    dl.hidden = !(engine.mode === 'amrap' && n > 0);
+    dl.hidden = !((engine.mode === 'amrap' || engine.mode === 'fortime') && n > 0);
     dl.innerHTML = [...engine.laps].reverse()
       .map(l => `<li><span>Giro ${l.n}</span><span>${fmtElapsed(l.split)}</span></li>`).join('');
     closeConfirm();
@@ -578,6 +643,7 @@ $('#btn-pause').addEventListener('click', () => {
   ui.renderTimer();
 });
 $('#btn-lap').addEventListener('click', () => engine.lap());
+$('#btn-fail').addEventListener('click', () => engine.failNow());
 $('#btn-finish').addEventListener('click', () => engine.finishNow());
 $('#btn-plus').addEventListener('click', () => engine.lap());
 $('#btn-minus').addEventListener('click', () => engine.undoLap());
@@ -587,7 +653,8 @@ function openConfirm() { $('#confirm').hidden = false; }
 function closeConfirm() { $('#confirm').hidden = true; }
 window.addEventListener('popstate', () => {
   if (engine.active) {                                  // allenamento in corso o in pausa
-    history.pushState({ gt: 'timer' }, '');             // annulla l'"indietro": restiamo qui
+    if (!$('#confirm').hidden) { exitWorkout(); return; }   // secondo "indietro" di fila: torna alla home
+    history.pushState({ gt: 'timer' }, '');             // primo "indietro": restiamo qui e chiediamo conferma
     openConfirm();                                      // il timer continua a girare mentre decidi
   } else if ($('#done').classList.contains('active')) {
     ui.show('setup');                                   // dalla schermata finale, indietro = home

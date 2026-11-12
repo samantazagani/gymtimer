@@ -66,13 +66,17 @@
 
   <div id="amrap-box" class="amrap-box" hidden>
     <button id="btn-minus" class="round-btn small" aria-label="Togli un giro">−</button>
-    <div class="amrap-count"><span id="amrap-n">0</span><small>giri</small></div>
+    <div class="amrap-count"><span id="amrap-n">0</span><small id="amrap-unit">giri</small></div>
     <button id="btn-plus" class="round-btn" aria-label="Aggiungi un giro">+1</button>
   </div>
 
   <div id="sw-box" class="sw-box" hidden>
     <ol id="lap-list" class="lap-list" aria-label="Giri parziali"></ol>
     <button id="btn-lap" class="round-btn finish">GIRO</button>
+  </div>
+
+  <div id="db-box" class="ft-box" hidden>
+    <button id="btn-fail" class="round-btn finish fail">NON CE L'HO FATTA</button>
   </div>
 
   <div id="ft-box" class="ft-box" hidden>
@@ -103,6 +107,7 @@
   <div class="sheet-card" role="dialog" aria-modal="true" aria-labelledby="confirm-title">
     <h2 id="confirm-title">Interrompere l'allenamento?</h2>
     <p class="confirm-text">Il timer si ferma e questa sessione non viene salvata.</p>
+    <p class="confirm-text hint">Premi di nuovo indietro per tornare subito alla schermata iniziale.</p>
     <button id="btn-continue" class="primary">CONTINUA</button>
     <button id="btn-stop" class="danger">INTERROMPI</button>
   </div>

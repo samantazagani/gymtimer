@@ -154,3 +154,11 @@ body[data-mode="stopwatch"] { --mc: #fb923c; --mc-text: #1c0a00; }
 .confirm-text { color: #a3abba; margin: 4px 0 12px; line-height: 1.4; }
 #confirm { z-index: 20; }
 #confirm .danger { margin-top: 10px; }
+
+/* ---------- scelte (Stile, Conta i giri) / Death by ---------- */
+.choice { display: flex; gap: 6px; }
+.choice button { padding: 11px 14px; border-radius: 10px; background: var(--line); color: #a3abba; font-weight: 700; }
+.choice button.on { background: var(--mc); color: var(--mc-text); }
+.ft-box.compact .round-btn.finish { height: 56px; font-size: 1.25rem; letter-spacing: 1px; }
+.round-btn.finish.fail { font-size: 1.3rem; letter-spacing: 0; height: 84px; }
+.confirm-text.hint { font-size: .85rem; margin-top: 12px; margin-bottom: 0; color: #8b93a3; }

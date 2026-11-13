@@ -10,13 +10,13 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 9;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 10;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
   mode: 'tabata',
   tabata: { prep: 10, work: 20, rest: 10, rounds: 8 },
-  emom:   { prep: 10, interval: 60, rounds: 10, style: 'classic', start: 1, inc: 1 },
+  emom:   { prep: 10, interval: 60, rounds: 10, style: 'classic' },
   amrap:  { prep: 10, minutes: 12 },
   fortime: { prep: 10, cap: 15, count: 'no', target: 0 },
   stopwatch: {},
@@ -35,8 +35,6 @@ const FIELDS = {
     { key: 'interval', label: 'Ogni',             min: 15, max: 300, step: 15, fmt: 'time' },
     { key: 'style',    label: 'Stile', kind: 'choice', options: [['classic', 'Classico'], ['deathby', 'Death by']] },
     { key: 'rounds',   label: 'Round',            min: 1,  max: 60,  step: 1,  fmt: 'n',    when: c => c.style !== 'deathby' },
-    { key: 'start',    label: 'Parti da',         min: 1,  max: 50,  step: 1,  fmt: 'rep',  when: c => c.style === 'deathby' },
-    { key: 'inc',      label: 'Aumento',          min: 1,  max: 10,  step: 1,  fmt: 'plus', when: c => c.style === 'deathby' },
   ],
   amrap: [
     { key: 'prep',    label: 'Preparazione', min: 0, max: 60, step: 5, fmt: 'time' },
@@ -54,7 +52,7 @@ const FIELDS = {
 const MODE_NAMES = { tabata: 'TABATA', emom: 'EMOM', amrap: 'AMRAP', fortime: 'FOR TIME', stopwatch: 'CRONOMETRO' };
 const MODE_DESC = {
   tabata: 'Lavoro e recupero a intervalli fissi, per un numero di round. Classico: 20" lavoro / 10" recupero × 8.',
-  emom:   'Every Minute On the Minute: a ogni scadenza parte un nuovo round. Quello che avanza è recupero. Con "Death by" a ogni minuto fai una ripetizione in più, finché cedi.',
+  emom:   'Every Minute On the Minute: a ogni scadenza parte un nuovo round. Quello che avanza è recupero. Con "Death by" i round vanno avanti senza fine finché ti fermi.',
   amrap:  'As Many Rounds As Possible: più giri possibili nel tempo stabilito. Tocca +1 a ogni giro.',
   fortime: 'Completa il lavoro il più in fretta possibile: il tempo sale, tocca FINITO quando hai terminato. Con il time cap suona allo scadere. Puoi anche contare i giri.',
   stopwatch: 'Un semplice cronometro: avvia, ferma e tocca GIRO per segnare i parziali.',
@@ -100,9 +98,8 @@ function buildSegments(mode, c) {
       if (c.rest > 0 && i < c.rounds) segs.push({ type: 'rest', dur: c.rest, label: 'RECUPERO', round: i, rounds: c.rounds });
     }
   } else if (mode === 'emom' && c.style === 'deathby') {
-    for (let i = 1; i <= 60; i++) {                       // fino a 60 minuti: oltre non si arriva
-      const reps = c.start + (i - 1) * c.inc;
-      segs.push({ type: 'work', dur: c.interval, label: `${reps} RIP.`, round: i, deathBy: true, reps });
+    for (let i = 1; i <= 240; i++) {                      // di fatto senza fine: si ferma con "Non ce l'ho fatta"
+      segs.push({ type: 'work', dur: c.interval, label: 'VAI', round: i, deathBy: true });
     }
   } else if (mode === 'emom') {
     for (let i = 1; i <= c.rounds; i++) {
@@ -345,7 +342,7 @@ const engine = {
     this.lastCount = null; this.flags = {};
     if (!timely) return;                                 // tornati dal background: niente vibrazione/voce in ritardo
     if (s.type === 'work' && s.stopwatch) cue('tick');
-    else if (s.type === 'work') cue('go', s.deathBy ? `Fai ${s.reps}` : this.mode === 'tabata' ? 'Lavoro' : 'Via');
+    else if (s.type === 'work') cue('go', this.mode === 'tabata' ? 'Lavoro' : 'Via');
     else if (s.type === 'rest') cue('rest', 'Recupero');
     else if (s.type === 'prep') speak('Preparati');
   },
@@ -395,13 +392,7 @@ const engine = {
 
   // Death by: failedAt = minuto in cui ha ceduto; done = minuti completati
   calcDeath(failedAt) {
-    const c = this.cfg, done = failedAt - 1;
-    return {
-      failedAt, done,
-      repsLast: done > 0 ? c.start + (done - 1) * c.inc : 0,
-      total: done > 0 ? done * c.start + c.inc * done * (done - 1) / 2 : 0,
-      failedReps: c.start + (failedAt - 1) * c.inc,
-    };
+    return { failedAt, done: failedAt - 1 };
   },
 
   failNow() {
@@ -597,8 +588,7 @@ const ui = {
       const r = engine.deathResult, unit = engine.cfg.interval === 60 ? 'minuto' : 'round';
       txt = `EMOM · DEATH BY\n<b>${r.done}</b>\n${r.done === 1 ? unit : unit === 'minuto' ? 'minuti completati' : 'round completati'}`;
       if (r.done === 1) txt += ' completato';
-      if (r.done > 0) txt += `\nUltimo: ${r.repsLast} ripetizioni · totale ${r.total}`;
-      if (r.failedAt <= engine.segs.length) txt += `\nHai ceduto al ${unit} ${r.failedAt} (${r.failedReps} rip.)`;
+      if (r.failedAt <= engine.segs.length) txt += `\nHai ceduto al ${unit} ${r.failedAt}`;
     }
     $('#done-summary').innerHTML = txt;
     const dl = $('#done-laps');

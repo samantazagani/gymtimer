@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 10;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 11;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -64,7 +64,7 @@ function loadState() {
     return {
       mode: saved.mode in MODE_NAMES ? saved.mode : DEFAULTS.mode,
       tabata: { ...DEFAULTS.tabata, ...saved.tabata },
-      emom:   { ...DEFAULTS.emom,   ...saved.emom },
+      emom:   { ...DEFAULTS.emom,   ...saved.emom, style: 'classic' },   // all'apertura l'EMOM parte sempre in modalità classica
       amrap:  { ...DEFAULTS.amrap,  ...saved.amrap },
       fortime: { ...DEFAULTS.fortime, ...saved.fortime },
       stopwatch: {},
@@ -453,12 +453,19 @@ const engine = {
 
 /* ---------------------------------------------------------------- UI */
 
+// "indietro" del telefono: all'avvio mettiamo 2 voci di cronologia (d=1, d=2), così servono due "indietro" per arrivare alla home
+// senza dover aggiungere voci dopo (il browser le salterebbe, perché non nascono da un tocco dell'utente)
+const guardDepth = () => (history.state && history.state.gt === 'timer' && history.state.d) || 0;
+function armBackGuard() {
+  for (let d = guardDepth() + 1; d <= 2; d++) { try { history.pushState({ gt: 'timer', d }, ''); } catch {} }
+}
+
 const ui = {
   show(id) {
     if (id === 'setup' && pendingReload) { location.reload(); return; }
     $$('.screen').forEach(el => el.classList.toggle('active', el.id === id));
     // togliamo dalla cronologia la voce aggiunta all'avvio, così "indietro" dalla home esce dall'app
-    if (id === 'setup' && history.state && history.state.gt === 'timer') history.back();
+    if (id === 'setup') { const g = guardDepth(); if (g > 0) history.go(-g); }
   },
 
   renderSetup() {
@@ -604,7 +611,7 @@ const ui = {
 
 function startWorkout() {
   // una voce di cronologia in più: il tasto "indietro" del telefono chiede conferma invece di uscire
-  if (!(history.state && history.state.gt === 'timer')) history.pushState({ gt: 'timer' }, '');
+  armBackGuard();
   initAudio();           // dentro il gesto utente
   lockScreen();
   ui.show('timer');
@@ -643,14 +650,14 @@ function openConfirm() { $('#confirm').hidden = false; }
 function closeConfirm() { $('#confirm').hidden = true; }
 window.addEventListener('popstate', () => {
   if (engine.active) {                                  // allenamento in corso o in pausa
-    if (!$('#confirm').hidden) { exitWorkout(); return; }   // secondo "indietro" di fila: torna alla home
-    history.pushState({ gt: 'timer' }, '');             // primo "indietro": restiamo qui e chiediamo conferma
-    openConfirm();                                      // il timer continua a girare mentre decidi
+    if (!$('#confirm').hidden) { exitWorkout(); return; }   // secondo "indietro" di fila: ferma tutto e torna alla home
+    openConfirm();                                      // primo "indietro": chiediamo conferma, il timer continua a girare
+    if (guardDepth() === 0) armBackGuard();             // (solo se la cronologia fosse già esaurita)
   } else if ($('#done').classList.contains('active')) {
     ui.show('setup');                                   // dalla schermata finale, indietro = home
   }
 });
-$('#btn-continue').addEventListener('click', closeConfirm);
+$('#btn-continue').addEventListener('click', () => { closeConfirm(); armBackGuard(); });
 $('#btn-stop').addEventListener('click', exitWorkout);
 
 // impostazioni

@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 11;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 12;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -453,11 +453,12 @@ const engine = {
 
 /* ---------------------------------------------------------------- UI */
 
-// "indietro" del telefono: all'avvio mettiamo 2 voci di cronologia (d=1, d=2), così servono due "indietro" per arrivare alla home
+// "indietro" del telefono: all'avvio mettiamo alcune voci di cronologia (d=1…4); il primo "indietro" chiede conferma, il secondo ferma tutto
 // senza dover aggiungere voci dopo (il browser le salterebbe, perché non nascono da un tocco dell'utente)
+const GUARD = 4;   // voci di scorta: anche se il telefono ne saltasse qualcuna, i due "indietro" restano dentro l'app
 const guardDepth = () => (history.state && history.state.gt === 'timer' && history.state.d) || 0;
 function armBackGuard() {
-  for (let d = guardDepth() + 1; d <= 2; d++) { try { history.pushState({ gt: 'timer', d }, ''); } catch {} }
+  for (let d = guardDepth() + 1; d <= GUARD; d++) { try { history.pushState({ gt: 'timer', d }, ''); } catch {} }
 }
 
 const ui = {

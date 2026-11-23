@@ -1,7 +1,7 @@
 /* Service worker: l'app funziona offline dopo la prima apertura.
    Strategia: risponde subito dalla cache e aggiorna in background (stale-while-revalidate).
    Quando pubblichi una nuova versione, incrementa CACHE. */
-const CACHE = 'semmytimer-v14';
+const CACHE = 'semmytimer-v15';
 const ASSETS = [
   './',
   'index.html',

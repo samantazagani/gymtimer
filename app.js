@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 14;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 15;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -20,7 +20,7 @@ const DEFAULTS = {
   amrap:  { prep: 10, minutes: 12 },
   fortime: { prep: 10, cap: 15, count: 'no', target: 0 },
   stopwatch: {},
-  sound:  { on: true, volume: 0.8, countdown: true, mid: true, vibrate: true, voice: false },
+  sound:  { on: true, volume: 0.8, countdown: true, mid: true, vibrate: true },
 };
 
 const FIELDS = {
@@ -226,21 +226,15 @@ function cancelScheduled() {
 function vibrate(pattern) {
   if (state.sound.vibrate && navigator.vibrate) try { navigator.vibrate(pattern); } catch {}
 }
-function speak(text) {
-  if (!state.sound.voice || !('speechSynthesis' in window)) return;
-  try {
-    speechSynthesis.cancel();
-    const u = new SpeechSynthesisUtterance(text);
-    u.lang = 'it-IT'; u.volume = state.sound.volume;
-    speechSynthesis.speak(u);
-  } catch {}
-}
-
 // `at` = secondi da adesso
 const SND = {
   tick:   (at = 0) => tone(880, 0.12, at, 'sine', 0.9),
   go:     (at = 0) => tone(1320, 0.75, at, 'square', 0.55),
-  rest:   (at = 0) => { tone(600, 0.22, at, 'triangle'); tone(420, 0.4, at + 0.25, 'triangle'); },
+  // "ta-ta-ta-taaa": l'attacco della Quinta di Beethoven (Sol Sol Sol Mi♭)
+  rest:   (at = 0) => {
+    [0, 0.22, 0.44].forEach(d => { tone(392.0, 0.19, at + d, 'triangle', 1); tone(196.0, 0.19, at + d, 'sine', 0.5); });
+    tone(311.13, 1.1, at + 0.66, 'triangle', 1); tone(155.56, 1.1, at + 0.66, 'sine', 0.5);
+  },
   minute: (at = 0) => tone(660, 0.18, at, 'sine', 0.8),
   half:   (at = 0) => { tone(700, 0.15, at); tone(700, 0.15, at + 0.25); },
   warn:   (at = 0) => { [0, 0.25, 0.5].forEach(d => tone(990, 0.15, at + d)); },
@@ -249,9 +243,9 @@ const SND = {
     tone(1568, 1.0, at + 0.9, 'square', 0.55);
   },
 };
-const VIB = { tick: 40, go: [200], rest: [120, 60, 120], minute: 60, half: [80, 60, 80], warn: [80, 60, 80, 60, 80], end: [300, 100, 300, 100, 600] };
-// vibrazione + voce: funzionano solo con la pagina in primo piano (i suoni invece sono già programmati)
-function cue(name, text) { vibrate(VIB[name]); if (text) speak(text); }
+const VIB = { tick: 40, go: [200], rest: [110, 110, 110, 110, 110, 110, 500], minute: 60, half: [80, 60, 80], warn: [80, 60, 80, 60, 80], end: [300, 100, 300, 100, 600] };
+// vibrazione: funziona solo con la pagina in primo piano (i suoni invece sono già programmati)
+function cue(name) { vibrate(VIB[name]); }
 
 /* ---------------------------------------------------------------- wake lock */
 
@@ -342,9 +336,8 @@ const engine = {
     this.lastCount = null; this.flags = {};
     if (!timely) return;                                 // tornati dal background: niente vibrazione/voce in ritardo
     if (s.type === 'work' && s.stopwatch) cue('tick');
-    else if (s.type === 'work') cue('go', this.mode === 'tabata' ? 'Lavoro' : 'Via');
-    else if (s.type === 'rest') cue('rest', 'Recupero');
-    else if (s.type === 'prep') speak('Preparati');
+    else if (s.type === 'work') cue('go');
+    else if (s.type === 'rest') cue('rest');
   },
 
   tick() {
@@ -644,7 +637,6 @@ function startWorkout() {
 function exitWorkout() {
   closeConfirm();
   engine.stop(); unlockScreen(); stopSilent();
-  try { speechSynthesis.cancel(); } catch {}
   ui.show('setup');
 }
 
@@ -691,7 +683,6 @@ function openSettings() {
   $('#s-countdown').checked = S.countdown;
   $('#s-mid').checked = S.mid;
   $('#s-vibrate').checked = S.vibrate;
-  $('#s-voice').checked = S.voice;
   $('#settings').hidden = false;
 }
 $('#btn-settings').addEventListener('click', openSettings);
@@ -701,7 +692,6 @@ $('#s-volume').addEventListener('input', e => { S.volume = Number(e.target.value
 $('#s-countdown').addEventListener('change', e => { S.countdown = e.target.checked; saveState(); });
 $('#s-mid').addEventListener('change', e => { S.mid = e.target.checked; saveState(); });
 $('#s-vibrate').addEventListener('change', e => { S.vibrate = e.target.checked; saveState(); });
-$('#s-voice').addEventListener('change', e => { S.voice = e.target.checked; saveState(); });
 $('#btn-test').addEventListener('click', () => {
   initAudio();
   SND.tick(); setTimeout(SND.go, 500); setTimeout(SND.rest, 1500); setTimeout(SND.end, 2500);

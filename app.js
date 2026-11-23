@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 12;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 14;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -549,6 +549,27 @@ const ui = {
       : s.forTime ? (counting ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : 'Tocca FINITO quando hai terminato') : (s.amrap ? `Giro ${engine.laps.length + 1} in corso · ${fmtElapsed(engine.segMs / 1000 - (engine.laps.length ? engine.laps[0].total : 0))}` : s.stopwatch ? '' : 'Ultimo!');
     const rem = engine.totalRemaining();
     $('#t-total').textContent = Number.isFinite(rem) ? fmtClock(rem) : '—';
+    // anello: avanzamento del segmento corrente (per cronometro / senza cap: un giro ogni minuto)
+    const segFrac = Number.isFinite(s.dur) ? engine.segMs / (s.dur * 1000) : ((engine.segMs / 1000) % 60) / 60;
+    $('#t-ring').setAttribute('stroke-dasharray', `${Math.max(0, Math.min(1, segFrac)) * 100} 100`);
+    // pallini: un cerchio per ogni round (si riempie quando il round è completato), o un cerchio per ogni giro fatto
+    const rTot = (engine.segs.find(x => x.rounds) || {}).rounds || 0;
+    let dots = '';
+    if (rTot > 0 && !engine.deathBy) {
+      const doneR = (s.round || 0) - (s.type === 'rest' ? 0 : 1);
+      const cls = rTot > 30 ? 'xs' : rTot > 14 ? 'sm' : '';
+      for (let i = 1; i <= rTot; i++) dots += `<i class="${i <= doneR ? 'on' : (i === s.round ? 'cur' : '')}"></i>`;
+      $('#t-dots').className = 'dots ' + cls;
+    } else if (counting && engine.cfg.target > 0) {
+      for (let i = 1; i <= engine.cfg.target; i++) dots += `<i class="${i <= engine.laps.length ? 'on' : (i === engine.laps.length + 1 ? 'cur' : '')}"></i>`;
+      $('#t-dots').className = 'dots';
+    } else if ((engine.mode === 'amrap' || counting || engine.deathBy) && (engine.laps.length > 0 || engine.deathBy)) {
+      const k = engine.deathBy ? Math.max(0, s.round - 1) : engine.laps.length;
+      for (let i = 0; i < Math.min(k, 40); i++) dots += '<i class="on"></i>';
+      if (engine.deathBy) dots += '<i class="cur"></i>';
+      $('#t-dots').className = 'dots ' + (k > 14 ? 'sm' : '');
+    }
+    $('#t-dots').innerHTML = dots;
     $('#t-bar').style.width = `${Math.min(100, (engine.totalMs / 1000 / engine.totalDur) * 100)}%`;
 
     $('#amrap-box').hidden = !((engine.mode === 'amrap' || counting) && s.type === 'work');

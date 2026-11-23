@@ -10,7 +10,7 @@ const $$ = (s, r = document) => [...r.querySelectorAll(s)];
 
 /* ---------------------------------------------------------------- config */
 
-const APP_VERSION = 15;           // tienila uguale al numero in sw.js (semmytimer-vN)
+const APP_VERSION = 16;           // tienila uguale al numero in sw.js (semmytimer-vN)
 const STORAGE_KEY = 'gymtimer.v1';
 
 const DEFAULTS = {
@@ -230,20 +230,20 @@ function vibrate(pattern) {
 const SND = {
   tick:   (at = 0) => tone(880, 0.12, at, 'sine', 0.9),
   go:     (at = 0) => tone(1320, 0.75, at, 'square', 0.55),
-  // "ta-ta-ta-taaa": l'attacco della Quinta di Beethoven (Sol Sol Sol Mi♭)
-  rest:   (at = 0) => {
-    [0, 0.22, 0.44].forEach(d => { tone(392.0, 0.19, at + d, 'triangle', 1); tone(196.0, 0.19, at + d, 'sine', 0.5); });
-    tone(311.13, 1.1, at + 0.66, 'triangle', 1); tone(155.56, 1.1, at + 0.66, 'sine', 0.5);
-  },
+  rest:   (at = 0) => { tone(600, 0.22, at, 'triangle'); tone(420, 0.4, at + 0.25, 'triangle'); },
   minute: (at = 0) => tone(660, 0.18, at, 'sine', 0.8),
   half:   (at = 0) => { tone(700, 0.15, at); tone(700, 0.15, at + 0.25); },
   warn:   (at = 0) => { [0, 0.25, 0.5].forEach(d => tone(990, 0.15, at + d)); },
+  // fine allenamento: fanfara in Do maggiore, come il finale della Quinta di Beethoven (tre accordi secchi + accordo lungo)
   end:    (at = 0) => {
-    [0, 0.28, 0.56].forEach(d => tone(1047, 0.2, at + d, 'square', 0.5));
-    tone(1568, 1.0, at + 0.9, 'square', 0.55);
+    const chord = (t, d, g) => { [261.63, 329.63, 392.0, 523.25].forEach(f => tone(f, d, t, 'triangle', g)); tone(130.81, d, t, 'sine', g * 0.7); };
+    [0, 0.24, 0.48].forEach(d => chord(at + d, 0.2, 0.3));
+    chord(at + 0.72, 1.6, 0.34);
+    [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, 0.3, at + 1.0 + i * 0.16, 'triangle', 0.45));
+    tone(1046.5, 1.0, at + 1.64, 'triangle', 0.5);
   },
 };
-const VIB = { tick: 40, go: [200], rest: [110, 110, 110, 110, 110, 110, 500], minute: 60, half: [80, 60, 80], warn: [80, 60, 80, 60, 80], end: [300, 100, 300, 100, 600] };
+const VIB = { tick: 40, go: [200], rest: [120, 60, 120], minute: 60, half: [80, 60, 80], warn: [80, 60, 80, 60, 80], end: [300, 100, 300, 100, 600] };
 // vibrazione: funziona solo con la pagina in primo piano (i suoni invece sono già programmati)
 function cue(name) { vibrate(VIB[name]); }
 
@@ -590,7 +590,7 @@ const ui = {
   },
 
   showDone() {
-    unlockScreen(); stopSilent(3000);      // lascia finire il suono finale prima di fermare l'audio
+    unlockScreen(); stopSilent(4500);      // lascia finire il suono finale prima di fermare l'audio
     let txt = `${MODE_NAMES[engine.mode]} · ${Number.isFinite(engine.totalDur) ? fmtClock(engine.totalDur) : 'senza cap'}`;
     const n = engine.laps.length;
     if (engine.mode === 'amrap') {
